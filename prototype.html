@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>The Lighthouse Below — Prototype</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root {
+    --abyss:#020611;
+    --teal:#5fd1c4;
+    --rust:#c87a4a;
+    --bone:#e8e4d5;
+    --warn:#ff6b5a;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;height:100%;background:var(--abyss);color:var(--bone);font-family:'Courier New',monospace;overflow:hidden;user-select:none;cursor:none}
+  #wrap{position:relative;width:100vw;height:100vh;display:flex;align-items:center;justify-content:center}
+  canvas{display:block;background:#000;image-rendering:pixelated;box-shadow:0 0 80px rgba(0,40,60,.6) inset}
+  .hud{position:absolute;pointer-events:none;font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--teal);text-shadow:0 0 6px rgba(95,209,196,.6)}
+  #topbar{top:14px;left:14px;display:flex;gap:24px}
+  #botbar{bottom:14px;left:14px;right:14px;display:flex;justify-content:space-between;align-items:flex-end;gap:24px}
+  .meter{display:flex;flex-direction:column;gap:4px;min-width:160px}
+  .meter .lbl{opacity:.7}
+  .bar{height:6px;background:rgba(95,209,196,.12);border:1px solid rgba(95,209,196,.35);position:relative}
+  .bar > i{display:block;height:100%;background:var(--teal);transition:width .25s linear}
+  .bar.danger > i{background:var(--warn)}
+  #depth{font-size:46px;color:var(--bone);text-shadow:0 0 12px rgba(232,228,213,.4)}
+  #depth small{font-size:14px;opacity:.6;letter-spacing:3px}
+  #codex{position:absolute;top:14px;right:14px;width:260px;color:var(--bone);font-size:11px;letter-spacing:1px}
+  #codex h3{margin:0 0 8px;color:var(--rust);font-size:11px;letter-spacing:3px}
+  #codex .glyphlist{display:grid;grid-template-columns:repeat(6,1fr);gap:4px}
+  #codex .glyphlist div{aspect-ratio:1;border:1px solid rgba(200,122,74,.4);display:flex;align-items:center;justify-content:center;color:rgba(232,228,213,.15);font-size:18px;background:rgba(0,0,0,.4)}
+  #codex .glyphlist div.found{color:var(--rust);background:rgba(200,122,74,.12);box-shadow:0 0 8px rgba(200,122,74,.3) inset}
+  #log{position:absolute;left:14px;bottom:80px;width:340px;max-height:160px;overflow:hidden;font-size:11px;color:rgba(232,228,213,.7);line-height:1.6;text-shadow:0 0 4px rgba(0,0,0,.8)}
+  #log p{margin:0 0 4px;opacity:0;animation:fade 5s forwards}
+  @keyframes fade{0%{opacity:0;transform:translateY(4px)}10%{opacity:1;transform:none}90%{opacity:1}100%{opacity:.25}}
+  #title{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,#020611 0%,#000 100%);z-index:20;cursor:pointer}
+  #title h1{font-size:42px;letter-spacing:14px;color:var(--bone);margin:0 0 8px;text-shadow:0 0 20px rgba(95,209,196,.4)}
+  #title .sub{color:var(--teal);letter-spacing:6px;font-size:12px;margin-bottom:30px}
+  #title .start{border:1px solid var(--teal);padding:14px 32px;letter-spacing:4px;color:var(--teal);background:transparent;font-family:inherit;font-size:13px;cursor:pointer;transition:all .3s}
+  #title .start:hover{background:rgba(95,209,196,.1);box-shadow:0 0 20px rgba(95,209,196,.3)}
+  #title .hint{margin-top:20px;font-size:10px;opacity:.5;letter-spacing:2px;text-align:center;max-width:420px;line-height:1.8}
+  #endcard{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;background:rgba(2,6,17,.92);z-index:20;cursor:pointer}
+  #endcard h2{color:var(--rust);letter-spacing:8px;font-size:24px;margin:0 0 12px}
+  #endcard p{max-width:480px;text-align:center;font-size:13px;line-height:1.8;color:var(--bone);margin:6px 0}
+  #endcard .again{margin-top:24px;border:1px solid var(--bone);padding:10px 24px;letter-spacing:3px;color:var(--bone);background:transparent;font-family:inherit;font-size:11px;cursor:pointer}
+  #cursor{position:fixed;pointer-events:none;width:24px;height:24px;border:1px solid var(--teal);border-radius:50%;transform:translate(-50%,-50%);box-shadow:0 0 8px rgba(95,209,196,.5);z-index:30}
+  #cursor::after{content:'';position:absolute;inset:10px;background:var(--teal);border-radius:50%}
+  .turn-flash{animation:turnflash 1.2s}
+  @keyframes turnflash{0%{filter:none}30%{filter:hue-rotate(60deg) brightness(1.4)}100%{filter:none}}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game" width="1280" height="720"></canvas>
+
+  <div id="topbar" class="hud">
+    <div>
+      <div id="depth">— <small>M</small></div>
+      <div style="font-size:10px;opacity:.5;letter-spacing:4px;margin-top:2px">TETHYS · ANGLERFISH-IV</div>
+    </div>
+  </div>
+
+  <div id="botbar" class="hud">
+    <div class="meter">
+      <div class="lbl">Oxygen <span id="o2val">100%</span></div>
+      <div class="bar" id="o2bar"><i style="width:100%"></i></div>
+    </div>
+    <div class="meter">
+      <div class="lbl">Hull Pressure <span id="prval">0%</span></div>
+      <div class="bar" id="prbar"><i style="width:0%"></i></div>
+    </div>
+    <div class="meter" style="text-align:right">
+      <div class="lbl">Glyphs Recovered <span id="gval">0 / 12</span></div>
+      <div style="font-size:10px;opacity:.5">[LEFT-CLICK] PHOTOGRAPH · [E] ASCEND</div>
+    </div>
+  </div>
+
+  <div id="codex">
+    <h3>::CODEX::</h3>
+    <div class="glyphlist" id="glyphlist"></div>
+  </div>
+
+  <div id="log"></div>
+
+  <div id="title">
+    <h1>THE LIGHTHOUSE BELOW</h1>
+    <div class="sub">A DIVE PROTOCOL</div>
+    <button class="start" onclick="startDive()">▼  BEGIN DESCENT  ▼</button>
+    <div class="hint">
+      MOUSE — aim flashlight · CLICK — photograph glyphs · WASD — pilot diver<br>
+      Return to the <span style="color:var(--rust)">ANGLERFISH</span> before oxygen depletes. Press <b>E</b> when near submersible to ascend.<br><br>
+      <span style="color:var(--warn)">Something is down here. Something old.</span>
+    </div>
+  </div>
+
+  <div id="endcard">
+    <h2 id="endtitle">SURFACED</h2>
+    <p id="endbody">—</p>
+    <p style="opacity:.5;font-size:11px" id="endstats">—</p>
+    <button class="again" onclick="location.reload()">▲  DIVE AGAIN  ▲</button>
+  </div>
+
+  <div id="cursor"></div>
+</div>
+
+<script>
+'use strict';
+// =========================================================================
+// THE LIGHTHOUSE BELOW — Prototype
+// Demonstrates: dive descent, flashlight, photograph-glyph investigation,
+// pressure/oxygen tension, The Turning event, extraction loop.
+// =========================================================================
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+// World state -----------------------------------------------------------
+const state = {
+  running: false,
+  t: 0,
+  depth: 0,              // meters
+  maxDepth: 6200,
+  o2: 100,
+  pressure: 0,
+  glyphs: [],            // discovered glyph indices (0..11)
+  totalGlyphs: 12,
+  turning: false,
+  turnedAt: 0,
+  cameraY: 0,            // world-y the camera is centered on
+  player: { x: W/2, y: 200, vx:0, vy:0, inSub: true, ascending: false },
+  sub:    { x: W/2, y: 80,  bobT: 0 },
+  particles: [],
+  glyphNodes: [],
+  ruinSegments: [],
+  entity: null,
+  outcome: null,
+  shake: 0,
+};
+
+const GLYPH_CHARS = ['☥','⚚','☩','⚙','⌬','⌖','✶','✷','☉','♆','⍟','⏃'];
+
+// Procedural ruin layout (vertical scroll world)
+function generateWorld() {
+  // 6 zones of 1000m each
+  for (let z = 0; z < 6; z++) {
+    const baseY = 400 + z * 1400;
+    // Place 2–3 glyph nodes per zone
+    const count = 2 + (z % 2);
+    for (let i = 0; i < count; i++) {
+      const gi = state.glyphNodes.length;
+      if (gi >= state.totalGlyphs) break;
+      state.glyphNodes.push({
+        id: gi,
+        x: 240 + Math.random() * (W - 480),
+        y: baseY + i * 380 + Math.random() * 200,
+        found: false,
+        pulse: Math.random() * Math.PI * 2,
+      });
+    }
+    // Ruin pillars / arches
+    for (let i = 0; i < 6 + z; i++) {
+      state.ruinSegments.push({
+        x: Math.random() * W,
+        y: baseY + Math.random() * 1400,
+        w: 30 + Math.random() * 80,
+        h: 80 + Math.random() * 260,
+        skew: (Math.random() - .5) * 0.4,
+        tone: 0.06 + Math.random() * 0.10,
+      });
+    }
+  }
+  // Marine snow particles
+  for (let i = 0; i < 220; i++) {
+    state.particles.push({
+      x: Math.random() * W,
+      y: Math.random() * H,
+      vy: 0.2 + Math.random() * 0.6,
+      r: 0.3 + Math.random() * 1.2,
+      drift: Math.random() * Math.PI * 2,
+    });
+  }
+}
+
+// Input -----------------------------------------------------------------
+const keys = {};
+const mouse = { x: W/2, y: H/2, down: false };
+window.addEventListener('keydown', e => {
+  keys[e.key.toLowerCase()] = true;
+  if (e.key.toLowerCase() === 'e' && state.running) tryAscend();
+});
+window.addEventListener('keyup',   e => { keys[e.key.toLowerCase()] = false; });
+canvas.addEventListener('mousemove', e => {
+  const r = canvas.getBoundingClientRect();
+  mouse.x = (e.clientX - r.left) * (W / r.width);
+  mouse.y = (e.clientY - r.top)  * (H / r.height);
+  const c = document.getElementById('cursor');
+  c.style.left = e.clientX + 'px';
+  c.style.top  = e.clientY + 'px';
+});
+canvas.addEventListener('mousedown', () => { mouse.down = true; tryPhotograph(); });
+canvas.addEventListener('mouseup',   () => { mouse.down = false; });
+
+// Logging ---------------------------------------------------------------
+function log(msg, tone='var(--bone)') {
+  const el = document.createElement('p');
+  el.textContent = '› ' + msg;
+  el.style.color = tone;
+  document.getElementById('log').prepend(el);
+  while (document.getElementById('log').children.length > 6)
+    document.getElementById('log').lastChild.remove();
+}
+
+// Game lifecycle --------------------------------------------------------
+function startDive() {
+  document.getElementById('title').style.display = 'none';
+  generateWorld();
+  buildCodexUI();
+  state.running = true;
+  log('Anglerfish-IV departed surface. Crew complement: 1.', 'var(--teal)');
+  setTimeout(() => log('Tethys advises caution: ruin is unmapped beyond 2km.', 'var(--bone)'), 1400);
+  requestAnimationFrame(loop);
+}
+
+function buildCodexUI() {
+  const list = document.getElementById('glyphlist');
+  list.innerHTML = '';
+  for (let i = 0; i < state.totalGlyphs; i++) {
+    const d = document.createElement('div');
+    d.textContent = GLYPH_CHARS[i];
+    d.id = 'g' + i;
+    list.appendChild(d);
+  }
+}
+
+function tryPhotograph() {
+  if (!state.running || state.player.inSub) return;
+  // Find any glyph within flashlight cone + small radius of mouse
+  for (const g of state.glyphNodes) {
+    if (g.found) continue;
+    const sx = g.x, sy = g.y - state.cameraY;
+    const dm = Math.hypot(sx - mouse.x, sy - mouse.y);
+    const dp = Math.hypot(g.x - state.player.x, g.y - state.player.y);
+    if (dm < 70 && dp < 380 && isInFlashlight(sx, sy)) {
+      g.found = true;
+      state.glyphs.push(g.id);
+      document.getElementById('g'+g.id).classList.add('found');
+      document.getElementById('gval').textContent = state.glyphs.length + ' / ' + state.totalGlyphs;
+      log('Glyph «' + GLYPH_CHARS[g.id] + '» photographed. Cipher web updated.', 'var(--rust)');
+      flashCodex();
+      maybeTurning();
+      return;
+    }
+  }
+}
+
+function flashCodex() {
+  const c = document.getElementById('codex');
+  c.style.transition = 'none';
+  c.style.textShadow = '0 0 14px var(--rust)';
+  setTimeout(() => { c.style.transition='all 1s'; c.style.textShadow='none'; }, 50);
+}
+
+function tryAscend() {
+  // Player must be near the sub
+  const dx = state.player.x - state.sub.x;
+  const dy = (state.player.y) - state.sub.y;
+  if (state.player.inSub || Math.hypot(dx, dy) < 90) {
+    state.player.inSub = true;
+    state.player.ascending = true;
+    log('Re-entering Anglerfish. Beginning ascent.', 'var(--teal)');
+  } else {
+    log('Too far from submersible to ascend.', 'var(--warn)');
+  }
+}
+
+function maybeTurning() {
+  if (state.turning) return;
+  // Trigger after 5 glyphs OR deeper than 3500m
+  if (state.glyphs.length >= 5 || state.depth > 3500) {
+    state.turning = true;
+    state.turnedAt = state.t;
+    state.shake = 1.5;
+    document.body.classList.add('turn-flash');
+    setTimeout(()=>document.body.classList.remove('turn-flash'), 1200);
+    log('THE RUIN IS SHIFTING. SOMETHING WOKE.', 'var(--warn)');
+    setTimeout(() => log('Geometry is wrong. Recommend immediate ascent.', 'var(--warn)'), 1800);
+    // Spawn entity in distance below
+    state.entity = {
+      x: W/2 + (Math.random()-.5) * 300,
+      worldY: state.cameraY + H + 200,
+      phase: Math.random()*Math.PI*2,
+      visible: 0,
+    };
+  }
+}
+
+// ---------------- Player / camera physics -----------------------------
+function tickPlayer(dt) {
+  const p = state.player;
+  if (p.inSub) {
+    // submersible piloting
+    if (!p.ascending) {
+      if (keys['s'] || keys['arrowdown']) state.sub.bobT += dt;
+      const accel = 0.12;
+      if (keys['a']||keys['arrowleft'])  state.sub.x -= 3.6;
+      if (keys['d']||keys['arrowright']) state.sub.x += 3.6;
+      if (keys['s']||keys['arrowdown'])  state.cameraY += 3.2;
+      if (keys['w']||keys['arrowup'])    state.cameraY = Math.max(0, state.cameraY - 3.2);
+      // exit sub when reasonably deep
+      if (state.cameraY > 300 && (keys[' '] || keys['f'])) {
+        p.inSub = false;
+        p.x = state.sub.x;
+        p.y = state.sub.y + 50 + state.cameraY;
+        log('Diver deployed. Lifeline stable.', 'var(--teal)');
+      }
+    } else {
+      // ascending animation
+      state.cameraY -= 4.5;
+      if (state.cameraY <= 0) {
+        state.cameraY = 0;
+        endRun('surface');
+      }
+    }
+    state.sub.bobT += dt;
+    state.sub.y = 80 + Math.sin(state.sub.bobT * 1.5) * 4 + state.cameraY;
+  } else {
+    // diver swimming
+    const sp = 2.6;
+    let vx=0, vy=0;
+    if (keys['w']||keys['arrowup'])    vy -= sp;
+    if (keys['s']||keys['arrowdown'])  vy += sp;
+    if (keys['a']||keys['arrowleft'])  vx -= sp;
+    if (keys['d']||keys['arrowright']) vx += sp;
+    p.vx = p.vx * 0.85 + vx * 0.4;
+    p.vy = p.vy * 0.85 + vy * 0.4;
+    p.x += p.vx;
+    p.y += p.vy;
+    p.x = Math.max(60, Math.min(W - 60, p.x));
+    p.y = Math.max(state.cameraY + 60, p.y);
+    // camera follows
+    const target = p.y - H * 0.55;
+    state.cameraY += (target - state.cameraY) * 0.06;
+    state.cameraY = Math.max(0, state.cameraY);
+  }
+  // Depth display from cameraY (1px ≈ 1m so 1000m per zone)
+  state.depth = Math.max(0, Math.floor(state.cameraY * 1.0));
+}
+
+function tickMeters(dt) {
+  if (!state.running) return;
+  // Oxygen decays while diving (slower in sub)
+  const burn = state.player.inSub ? 0.06 : 0.18;
+  state.o2 = Math.max(0, state.o2 - burn * dt * 60);
+  // Pressure rises with depth
+  const targetPr = Math.min(100, state.depth / 62);
+  state.pressure += (targetPr - state.pressure) * 0.02;
+  // UI
+  const o2bar = document.querySelector('#o2bar i');
+  const prbar = document.querySelector('#prbar i');
+  o2bar.style.width = state.o2 + '%';
+  prbar.style.width = state.pressure + '%';
+  document.getElementById('o2val').textContent = Math.round(state.o2) + '%';
+  document.getElementById('prval').textContent = Math.round(state.pressure) + '%';
+  document.getElementById('o2bar').classList.toggle('danger', state.o2 < 30);
+  document.getElementById('prbar').classList.toggle('danger', state.pressure > 75);
+  document.getElementById('depth').firstChild.textContent = state.depth + ' ';
+
+  if (state.o2 <= 0) endRun('drowned');
+  if (state.pressure >= 100) endRun('crushed');
+}
+
+// ---------------- Rendering --------------------------------------------
+function isInFlashlight(sx, sy) {
+  const px = state.player.x;
+  const py = state.player.y - state.cameraY;
+  const ang = Math.atan2(mouse.y - py, mouse.x - px);
+  const da = Math.atan2(sy - py, sx - px);
+  let d = ((da - ang + Math.PI*3) % (Math.PI*2)) - Math.PI;
+  return Math.abs(d) < 0.55 && Math.hypot(sx-px, sy-py) < 420;
+}
+
+function draw() {
+  // Base water gradient — gets darker with depth
+  const dn = Math.min(1, state.depth / 6000);
+  const top = `rgba(${Math.floor(10*(1-dn))}, ${Math.floor(30*(1-dn))}, ${Math.floor(70*(1-dn*0.7))},1)`;
+  const bot = '#000308';
+  const g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0, top);
+  g.addColorStop(1, bot);
+  ctx.fillStyle = g;
+  ctx.fillRect(0,0,W,H);
+
+  // Camera shake
+  ctx.save();
+  if (state.shake > 0) {
+    ctx.translate((Math.random()-.5) * state.shake*6, (Math.random()-.5) * state.shake*6);
+    state.shake *= 0.92;
+  }
+
+  drawRuins();
+  drawGlyphs();
+  drawEntity();
+  drawParticles();
+  drawSub();
+  drawDiver();
+  drawFlashlight();
+  drawVignette();
+
+  ctx.restore();
+
+  // Turning overlay
+  if (state.turning) {
+    const phase = (state.t - state.turnedAt) * 0.001;
+    ctx.fillStyle = `rgba(120, 30, 30, ${0.04 + 0.02*Math.sin(phase*3)})`;
+    ctx.fillRect(0,0,W,H);
+  }
+}
+
+function drawRuins() {
+  for (const r of state.ruinSegments) {
+    const sy = r.y - state.cameraY;
+    if (sy < -300 || sy > H + 300) continue;
+    ctx.save();
+    ctx.translate(r.x, sy);
+    ctx.rotate(r.skew);
+    ctx.fillStyle = `rgba(${Math.floor(40 + r.tone*200)}, ${Math.floor(50 + r.tone*180)}, ${Math.floor(60 + r.tone*220)}, ${0.35 + r.tone*0.6})`;
+    ctx.fillRect(-r.w/2, -r.h/2, r.w, r.h);
+    // top cap
+    ctx.fillStyle = `rgba(${Math.floor(70 + r.tone*180)}, ${Math.floor(80 + r.tone*180)}, ${Math.floor(90 + r.tone*200)}, ${0.5 + r.tone*0.5})`;
+    ctx.fillRect(-r.w/2 - 6, -r.h/2 - 8, r.w + 12, 8);
+    ctx.restore();
+  }
+}
+
+function drawGlyphs() {
+  for (const g of state.glyphNodes) {
+    const sx = g.x, sy = g.y - state.cameraY;
+    if (sy < -50 || sy > H + 50) continue;
+    g.pulse += 0.04;
+    const inLight = !state.player.inSub && isInFlashlight(sx, sy);
+    // Stone tablet
+    ctx.fillStyle = inLight ? 'rgba(180,140,90,0.45)' : 'rgba(40,40,55,0.55)';
+    ctx.fillRect(sx-22, sy-26, 44, 52);
+    ctx.strokeStyle = inLight ? 'rgba(220,180,120,0.9)' : 'rgba(80,80,100,0.6)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(sx-22, sy-26, 44, 52);
+    // Glyph char
+    ctx.font = '24px serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const glow = g.found ? 1 : (inLight ? 0.7 + 0.3*Math.sin(g.pulse) : 0.25);
+    ctx.fillStyle = g.found
+      ? `rgba(200,122,74,${0.9})`
+      : `rgba(${inLight?220:120}, ${inLight?180:120}, ${inLight?120:140}, ${glow})`;
+    ctx.fillText(GLYPH_CHARS[g.id], sx, sy);
+    // Halo when in flashlight & not found
+    if (inLight && !g.found) {
+      ctx.beginPath();
+      ctx.arc(sx, sy, 30 + 5*Math.sin(g.pulse*2), 0, Math.PI*2);
+      ctx.strokeStyle = 'rgba(200,122,74,0.4)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+}
+
+function drawEntity() {
+  if (!state.entity) return;
+  state.entity.visible = Math.min(1, state.entity.visible + 0.005);
+  state.entity.phase += 0.02;
+  // Track player slowly
+  state.entity.worldY += 0.3;
+  const sy = state.entity.worldY - state.cameraY;
+  if (sy < -200 || sy > H + 400) return;
+  const a = state.entity.visible * 0.4;
+  // Massive silhouette
+  ctx.save();
+  ctx.translate(state.entity.x, sy);
+  ctx.fillStyle = `rgba(8,5,10,${a})`;
+  ctx.beginPath();
+  for (let i = 0; i < 12; i++) {
+    const ang = (i / 12) * Math.PI * 2;
+    const rad = 90 + Math.sin(state.entity.phase + i) * 20;
+    const px = Math.cos(ang) * rad;
+    const py = Math.sin(ang) * rad * 1.4;
+    if (i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+  }
+  ctx.closePath();
+  ctx.fill();
+  // Eyes
+  ctx.fillStyle = `rgba(255,90,60,${a*1.4})`;
+  ctx.beginPath();
+  ctx.arc(-18, -10, 3, 0, Math.PI*2);
+  ctx.arc(18, -10, 3, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawParticles() {
+  for (const p of state.particles) {
+    p.y += p.vy;
+    p.drift += 0.01;
+    p.x += Math.sin(p.drift) * 0.2;
+    if (p.y > H) { p.y = -2; p.x = Math.random() * W; }
+    ctx.fillStyle = `rgba(180,200,210,${0.15 + p.r * 0.1})`;
+    ctx.fillRect(p.x, p.y, p.r, p.r);
+  }
+}
+
+function drawSub() {
+  const sy = state.sub.y - state.cameraY;
+  if (sy < -120 || sy > H + 120) return;
+  ctx.save();
+  ctx.translate(state.sub.x, sy);
+  // Body
+  ctx.fillStyle = '#3a4248';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 60, 26, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Window
+  ctx.fillStyle = '#79e6ff';
+  ctx.beginPath();
+  ctx.arc(28, -2, 9, 0, Math.PI*2);
+  ctx.fill();
+  // Light beams from sub down
+  const gr = ctx.createLinearGradient(0, 20, 0, 220);
+  gr.addColorStop(0, 'rgba(255,235,180,0.5)');
+  gr.addColorStop(1, 'rgba(255,235,180,0)');
+  ctx.fillStyle = gr;
+  ctx.beginPath();
+  ctx.moveTo(-26, 14); ctx.lineTo(26, 14);
+  ctx.lineTo(80, 240); ctx.lineTo(-80, 240);
+  ctx.closePath();
+  ctx.fill();
+  // Tether (when diver out)
+  if (!state.player.inSub) {
+    ctx.strokeStyle = 'rgba(220,180,120,0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, 8);
+    const px = state.player.x - state.sub.x;
+    const py = state.player.y - state.sub.y - state.cameraY;
+    const midX = px / 2;
+    const midY = py / 2 + 40;
+    ctx.quadraticCurveTo(midX, midY, px, py);
+    ctx.stroke();
+  }
+  // Hub label
+  ctx.fillStyle = 'rgba(95,209,196,0.9)';
+  ctx.font = '10px Courier New';
+  ctx.textAlign = 'center';
+  ctx.fillText('ANGLERFISH-IV', 0, -38);
+  ctx.restore();
+}
+
+function drawDiver() {
+  if (state.player.inSub) return;
+  const p = state.player;
+  const sy = p.y - state.cameraY;
+  ctx.save();
+  ctx.translate(p.x, sy);
+  // Body suit
+  ctx.fillStyle = '#d1b070';
+  ctx.beginPath();
+  ctx.ellipse(0, 6, 9, 14, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Helmet
+  ctx.fillStyle = '#1b2226';
+  ctx.beginPath();
+  ctx.arc(0, -6, 10, 0, Math.PI*2);
+  ctx.fill();
+  // Visor reflection
+  ctx.fillStyle = '#5fd1c4';
+  ctx.beginPath();
+  ctx.arc(1, -7, 6, 0, Math.PI*2);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(3, -9, 1.5, 0, Math.PI*2);
+  ctx.fill();
+  // Fins
+  ctx.fillStyle = '#8a6a3a';
+  ctx.fillRect(-4, 18, 3, 6);
+  ctx.fillRect(1, 18, 3, 6);
+  ctx.restore();
+}
+
+function drawFlashlight() {
+  if (state.player.inSub) return;
+  const p = state.player;
+  const py = p.y - state.cameraY;
+  // Cone gradient
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const ang = Math.atan2(mouse.y - py, mouse.x - p.x);
+  ctx.translate(p.x, py);
+  ctx.rotate(ang);
+  const gr = ctx.createRadialGradient(0, 0, 0, 0, 0, 420);
+  gr.addColorStop(0, 'rgba(255,235,180,0.55)');
+  gr.addColorStop(.4, 'rgba(255,210,140,0.18)');
+  gr.addColorStop(1, 'rgba(255,210,140,0)');
+  ctx.fillStyle = gr;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.arc(0, 0, 420, -0.55, 0.55);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawVignette() {
+  const g = ctx.createRadialGradient(W/2, H/2, H*0.3, W/2, H/2, H*0.85);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(1, 'rgba(0,0,0,0.85)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0,0,W,H);
+}
+
+// ---------------- Endings ----------------------------------------------
+function endRun(reason) {
+  if (state.outcome) return;
+  state.outcome = reason;
+  state.running = false;
+  const titleEl = document.getElementById('endtitle');
+  const bodyEl  = document.getElementById('endbody');
+  const stats   = document.getElementById('endstats');
+  let title, body;
+  if (reason === 'surface') {
+    title = 'SURFACED · CONTRACT FULFILLED';
+    body = state.glyphs.length >= 8
+      ? 'Tethys command is silent. The glyphs you photographed match no known language — and yet, they match each other. They mean something. You can feel it.'
+      : state.glyphs.length >= 4
+      ? 'Partial recovery. Tethys requests you return. They say there\'s a pattern forming across crews.'
+      : 'You return with little. The lighthouse keeper just nods. He has seen this before.';
+  } else if (reason === 'drowned') {
+    title = 'OXYGEN EXHAUSTED';
+    body = 'Your last breath bubbles upward, joining the marine snow. The recording in your suit will be retrieved — and replayed for the next crew who finds your body.';
+  } else if (reason === 'crushed') {
+    title = 'HULL FAILURE';
+    body = 'Pressure crossed tolerance. The deep accepted you without ceremony.';
+  } else if (reason === 'taken') {
+    title = 'CONTACT LOST';
+    body = 'The ruin shifted around you. Tethys never recovered the body.';
+  }
+  titleEl.textContent = title;
+  bodyEl.textContent = body;
+  stats.textContent = `${state.glyphs.length}/${state.totalGlyphs} glyphs recovered · max depth ${state.depth}m · ${state.turning ? 'witnessed The Turning' : 'undisturbed dive'}`;
+  document.getElementById('endcard').style.display = 'flex';
+}
+
+// ---------------- Main loop --------------------------------------------
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  state.t = now;
+
+  if (state.running) {
+    tickPlayer(dt);
+    tickMeters(dt);
+    // Entity contact?
+    if (state.entity && !state.player.inSub) {
+      const sy = state.entity.worldY - state.cameraY;
+      const py = state.player.y - state.cameraY;
+      if (Math.hypot(state.entity.x - state.player.x, sy - py) < 60) {
+        endRun('taken');
+      }
+    }
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+
+// Pre-render menu background
+generateWorld();
+draw();
+</script>
+</body>
+</html>
